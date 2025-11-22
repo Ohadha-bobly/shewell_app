@@ -47,10 +47,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (user == null) return;
 
       final userData =
-          await supabase.from('users').select().eq('id', user.id).single();
+          await supabase.from('users').select().eq('id', user.id).maybeSingle();
+
+      if (userData == null) {
+        debugPrint('No user row found for id=${user.id}');
+        return;
+      }
 
       setState(() {
-        _userProfileUrl = userData['profile_url'];
+        final raw = userData['profile_url'];
+        _userProfileUrl = (raw is String && raw.trim().isNotEmpty) ? raw : null;
       });
     } catch (e) {
       debugPrint('Error loading user profile: $e');
@@ -179,22 +185,13 @@ class _HomeScreenState extends State<HomeScreen> {
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.favorite),
-            label: 'Tracker',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Tracker'),
           BottomNavigationBarItem(
             icon: Icon(Icons.chat_bubble_outline),
             label: 'Chatbot',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.message),
-            label: 'Messages',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.group),
-            label: 'Community',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.message), label: 'Messages'),
+          BottomNavigationBarItem(icon: Icon(Icons.group), label: 'Community'),
           BottomNavigationBarItem(
             icon: Icon(Icons.location_on),
             label: 'Clinics',

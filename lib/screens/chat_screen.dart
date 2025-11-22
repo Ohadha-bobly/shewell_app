@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cryptography/cryptography.dart';
 import '../widgets/typing_indicator.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -12,7 +14,7 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.peerId,
     required this.peerName,
-    required this.peerProfileUrl,
+    this.peerProfileUrl = '',
   });
 
   @override
@@ -20,154 +22,115 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _controller = TextEditingController();
   final supabase = Supabase.instance.client;
-  late final String chatId;
+
   late final String currentUserId;
-  StreamSubscription<List<Map<String, dynamic>>>? _peerSub;
-  StreamSubscription<List<Map<String, dynamic>>>? _peerTypingSub;
+  late final String chatId;
+
+  final TextEditingController _controller = TextEditingController();
+  final Map<String, String> _decryptedCache = {};
+  SecretKey? _symmetricKey;
 
   bool _peerOnline = false;
   DateTime? _peerLastSeen;
   bool _peerIsTyping = false;
 
+  List<Map<String, dynamic>> _initialMessages = [];
+  bool _messagesLoaded = false;
+
+  StreamSubscription<List<Map<String, dynamic>>>? _peerSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _peerTypingSub;
+
   @override
   void initState() {
     super.initState();
+    currentUserId = supabase.auth.currentUser?.id ?? '';
+    final ids = [currentUserId, widget.peerId]..removeWhere((e) => e.isEmpty);
+    ids.sort();
+    chatId = ids.join('_');
 
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      // If no user, push to login or throw — keep simple fallback:
-      currentUserId = '';
-    } else {
-      currentUserId = user.id;
-    }
-
-    // deterministic chat id (same ordering logic as before)
-    chatId = (currentUserId.hashCode <= widget.peerId.hashCode)
-        ? '$currentUserId-${widget.peerId}'
-        : '${widget.peerId}-$currentUserId';
-    _loadPeerStatus();
-    _watchPeerTyping();
+    _fetchInitialMessages();
   }
 
-  Future<void> _loadPeerStatus() async {
+  Future<void> _fetchInitialMessages() async {
     try {
-      // Subscribe to realtime changes on the peer's user row
-      final stream = supabase
-          .from('users')
-          .stream(primaryKey: ['id'])
-          .eq('id', widget.peerId)
-          .map((rows) => rows);
-
-      _peerSub = stream.listen((rows) {
-        if (rows.isNotEmpty) {
-          final row = rows.first;
-          final online = row['online'] == true;
-          DateTime? lastSeen;
-          try {
-            if (row['last_seen'] != null) {
-              lastSeen = DateTime.parse(row['last_seen']);
-            }
-          } catch (_) {
-            lastSeen = null;
-          }
-
-          if (mounted) {
-            setState(() {
-              _peerOnline = online;
-              _peerLastSeen = lastSeen;
-            });
-          }
-        }
-      }, onError: (e) {
-        debugPrint('Peer status stream error: $e');
-      });
-    } catch (e) {
-      debugPrint('Error loading peer status: $e');
-    }
-  }
-
-  Future<void> _watchPeerTyping() async {
-    try {
-      // Stream messages and check if peer sent a message recently
-      final stream = supabase
+      final resp = await supabase
           .from('messages')
-          .stream(primaryKey: ['id']).map((rows) => rows);
-
-      _peerTypingSub = stream.listen((rows) {
-        // Filter for this chat and from peer
-        final peerMessages = rows
-            .where((msg) =>
-                msg['chat_id'] == chatId && msg['sender_id'] == widget.peerId)
-            .toList();
-
-        if (peerMessages.isNotEmpty) {
-          // Sort by created_at and check most recent
-          peerMessages.sort((a, b) {
-            final dateA = DateTime.parse(a['created_at']);
-            final dateB = DateTime.parse(b['created_at']);
-            return dateB.compareTo(dateA);
-          });
-
-          final lastMessage = peerMessages.first;
-          final createdAt = DateTime.parse(lastMessage['created_at']);
-          final isRecent = DateTime.now().difference(createdAt).inSeconds < 3;
-
-          if (mounted) {
-            setState(() {
-              _peerIsTyping = isRecent;
-            });
-          }
-        }
-      }, onError: (e) {
-        debugPrint('Peer typing stream error: $e');
+          .select()
+          .eq('chat_id', chatId)
+          .order('created_at', ascending: false);
+      setState(() {
+        _initialMessages = List<Map<String, dynamic>>.from(resp ?? []);
+        _messagesLoaded = true;
       });
     } catch (e) {
-      debugPrint('Error watching peer typing: $e');
+      debugPrint('Failed to load initial messages: $e');
+      setState(() => _messagesLoaded = true);
     }
   }
 
-  @override
-  void dispose() {
-    _peerSub?.cancel();
-    _peerTypingSub?.cancel();
-    super.dispose();
-  }
-
-  String _timeAgo(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 60) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
+  Future<void> _decryptAndCache(String rawText, String id) async {
+    try {
+      final decoded = jsonDecode(rawText);
+      if (decoded is Map && decoded['enc'] == true && _symmetricKey != null) {
+        final nonce = base64Decode(decoded['n']);
+        final cipher = base64Decode(decoded['c']);
+        final mac = base64Decode(decoded['m']);
+        final secretBox = SecretBox(cipher, nonce: nonce, mac: Mac(mac));
+        final aes = AesGcm.with256bits();
+        final clear = await aes.decrypt(secretBox, secretKey: _symmetricKey!);
+        final text = utf8.decode(clear);
+        if (mounted) setState(() => _decryptedCache[id] = text);
+        return;
+      }
+    } catch (e) {
+      // ignore and fall back to raw
+    }
+    if (mounted) setState(() => _decryptedCache[id] = rawText);
   }
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
     if (currentUserId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not authenticated')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Not authenticated')));
+      }
       return;
     }
 
     try {
+      String payload = text.trim();
+      if (_symmetricKey != null) {
+        final aes = AesGcm.with256bits();
+        final nonce = aes.newNonce();
+        final secretBox = await aes.encrypt(utf8.encode(text.trim()),
+            secretKey: _symmetricKey!, nonce: nonce);
+        final obj = {
+          'enc': true,
+          'n': base64Encode(secretBox.nonce),
+          'c': base64Encode(secretBox.cipherText),
+          'm': base64Encode(secretBox.mac.bytes),
+        };
+        payload = jsonEncode(obj);
+      }
+
       await supabase.from('messages').insert({
         'chat_id': chatId,
         'sender_id': currentUserId,
         'receiver_id': widget.peerId,
-        'text': text.trim(),
+        'text': payload,
       });
       _controller.clear();
     } catch (e) {
       debugPrint('Send message error: $e');
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Send failed: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Send failed: $e')));
+      }
     }
   }
 
-  // Stream of messages for this chat (newest first)
   Stream<List<Map<String, dynamic>>> _messagesStream() {
     return supabase
         .from('messages')
@@ -175,8 +138,6 @@ class _ChatScreenState extends State<ChatScreen> {
         .eq('chat_id', chatId)
         .order('created_at', ascending: false)
         .map((event) {
-          // event is List<Map<String,dynamic>> of rows
-          // ensure we return a copy sorted newest-first (already ordered but safe)
           final list = List<Map<String, dynamic>>.from(event);
           list.sort((a, b) {
             final aTs = a['created_at'] == null
@@ -191,8 +152,26 @@ class _ChatScreenState extends State<ChatScreen> {
         });
   }
 
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  void dispose() {
+    _peerSub?.cancel();
+    _peerTypingSub?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    debugPrint(
+        'Building ChatScreen for peer="${widget.peerName}" (peerId=${widget.peerId})');
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -200,7 +179,12 @@ class _ChatScreenState extends State<ChatScreen> {
             Stack(
               children: [
                 CircleAvatar(
-                  backgroundImage: NetworkImage(widget.peerProfileUrl),
+                  backgroundImage: (widget.peerProfileUrl.isNotEmpty)
+                      ? NetworkImage(widget.peerProfileUrl)
+                      : null,
+                  child: (widget.peerProfileUrl.isEmpty)
+                      ? const Icon(Icons.person)
+                      : null,
                 ),
                 Positioned(
                   right: -2,
@@ -233,38 +217,97 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0),
+              child: Tooltip(
+                message: 'Encryption status',
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _symmetricKey != null
+                        ? Colors.green[600]
+                        : Colors.grey[600],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _symmetricKey != null ? Icons.lock : Icons.lock_open,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _symmetricKey != null ? 'Encrypted' : 'Not encrypted',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
         backgroundColor: Colors.pinkAccent,
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
+          Positioned.fill(
             child: StreamBuilder<List<Map<String, dynamic>>>(
               stream: _messagesStream(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
+                  debugPrint('Messages stream error: ${snapshot.error}');
                 }
 
-                final docs = snapshot.data ?? [];
+                final liveDocs = snapshot.data;
+                final docs = (liveDocs == null ||
+                        snapshot.connectionState == ConnectionState.waiting)
+                    ? _initialMessages
+                    : liveDocs;
+
+                if (!_messagesLoaded && (docs.isEmpty)) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
                 if (docs.isEmpty) {
                   return const Center(child: Text('No messages yet'));
                 }
 
                 return ListView.builder(
-                  reverse: true, // newest at bottom visually: list reversed
-                  padding: const EdgeInsets.all(12),
-                  itemCount:
-                      docs.length + (_controller.text.isNotEmpty ? 0 : 0),
+                  reverse: true,
+                  padding: const EdgeInsets.all(12).copyWith(bottom: 120),
+                  itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index];
                     final senderId = data['sender_id']?.toString() ?? '';
-                    final text = data['text']?.toString() ?? '';
+                    final rawText = data['text']?.toString() ?? '';
+                    final msgId = data['id']?.toString() ?? index.toString();
+                    String text;
+
+                    if (_decryptedCache.containsKey(msgId)) {
+                      text = _decryptedCache[msgId]!;
+                    } else {
+                      bool looksEncrypted = false;
+                      try {
+                        final decoded = jsonDecode(rawText);
+                        if (decoded is Map && decoded['enc'] == true)
+                          looksEncrypted = true;
+                      } catch (_) {
+                        looksEncrypted = false;
+                      }
+
+                      if (looksEncrypted && _symmetricKey != null) {
+                        _decryptAndCache(rawText, msgId);
+                        text = 'Decrypting...';
+                      } else {
+                        text = rawText;
+                      }
+                    }
                     final isMe = senderId == currentUserId;
 
                     return Align(
@@ -289,44 +332,62 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-
-          // composer
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: Colors.grey[100],
-            child: Column(
-              children: [
-                if (_peerIsTyping)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: TypingIndicator(
-                        color: Colors.pinkAccent,
-                      ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                child: Material(
+                  elevation: 6,
+                  borderRadius: BorderRadius.circular(28),
+                  color: Colors.white,
+                  child: Container(
+                    key: const ValueKey('composer_overlay'),
+                    height: 64,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: TextField(
+                              controller: _controller,
+                              decoration: InputDecoration(
+                                hintText: 'Type a message...',
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 12),
+                              ),
+                              style: const TextStyle(color: Colors.black87),
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (val) => _sendMessage(val),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (_symmetricKey != null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6.0),
+                            child: Icon(Icons.lock,
+                                size: 18, color: Colors.green[700]),
+                          ),
+                        Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.pinkAccent,
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.send, color: Colors.white),
+                            onPressed: () => _sendMessage(_controller.text),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        decoration: const InputDecoration(
-                          hintText: 'Type a message...',
-                          border: InputBorder.none,
-                        ),
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (val) => _sendMessage(val),
-                        onChanged: (val) => setState(() {}),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.send, color: Colors.pinkAccent),
-                      onPressed: () => _sendMessage(_controller.text),
-                    ),
-                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],

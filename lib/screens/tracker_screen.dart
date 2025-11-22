@@ -19,7 +19,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     '😊 Happy',
     '😐 Neutral',
     '😢 Sad',
-    '😖 Stressed'
+    '😖 Stressed',
   ];
   final supabase = Supabase.instance.client;
 
@@ -37,13 +37,46 @@ class _TrackerScreenState extends State<TrackerScreen> {
         throw Exception('User not authenticated');
       }
 
-      await supabase.from('wellness_logs').insert({
-        'user_id': userId,
-        'mood': _selectedMood,
-        'sleep_hours': _sleepHours,
-        'cycle_info': _cycleInfo ?? '',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      // Ensure there's a user row in `users` to satisfy any foreign-key
+      // constraints that the `wellness_logs` table may enforce.
+      final existing = await supabase
+          .from('users')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (existing == null) {
+        try {
+          await supabase.from('users').insert({'id': userId});
+          debugPrint('Created missing users row for id=$userId');
+        } catch (e) {
+          debugPrint('Failed creating users row: $e');
+          // Continue — insertion below may still fail, but surface the
+          // underlying error to the user rather than crash.
+        }
+      }
+
+      final response = await supabase
+          .from('wellness_logs')
+          .insert({
+            'user_id': userId,
+            'mood': _selectedMood,
+            'sleep_hours': _sleepHours,
+            'cycle_info': _cycleInfo ?? '',
+          })
+          .select()
+          .maybeSingle();
+      // Prefer to let the database set `created_at` with its default value
+      // to avoid conflicts with DB constraints or triggers.
+      // If you want the inserted row returned, consider:
+      // final response = await supabase.from('wellness_logs').insert({...}).select().maybeSingle();
+
+      // If the client returns an error object, throw it to be handled below.
+      // The supabase_flutter client will usually throw a PostgrestException on error,
+      // but checking the response can help in some client versions.
+      if (response == null) {
+        throw Exception('No response from Supabase when saving log.');
+      }
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -58,10 +91,24 @@ class _TrackerScreenState extends State<TrackerScreen> {
         _currentTabIndex = 1; // Switch to analytics
       });
     } catch (e) {
+      String message = e.toString();
+      try {
+        if (e is PostgrestException) {
+          message = '${e.message}';
+        }
+      } catch (_) {}
+      // Also try to extract common error fields if available
+      try {
+        // Some exceptions include a `details` or `hint` property.
+        final details = (e as dynamic).details ?? null;
+        final hint = (e as dynamic).hint ?? null;
+        if (details != null) message += '\nDetails: $details';
+        if (hint != null) message += '\nHint: $hint';
+      } catch (_) {}
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving log: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error saving log: $message')));
       }
     }
   }
@@ -114,15 +161,17 @@ class _TrackerScreenState extends State<TrackerScreen> {
             const Text(
               'Daily Wellness Tracker',
               style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white),
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             Card(
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+                borderRadius: BorderRadius.circular(16),
+              ),
               color: Color.fromARGB(230, 255, 255, 255),
               elevation: 6,
               child: Padding(
@@ -130,8 +179,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('How are you feeling today?',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'How are you feeling today?',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 10,
@@ -146,8 +197,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
                       }).toList(),
                     ),
                     const SizedBox(height: 20),
-                    const Text('How many hours did you sleep?',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'How many hours did you sleep?',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     Slider(
                       value: _sleepHours,
                       min: 0,
@@ -158,12 +211,16 @@ class _TrackerScreenState extends State<TrackerScreen> {
                       onChanged: (val) => setState(() => _sleepHours = val),
                     ),
                     Center(
-                        child: Text('${_sleepHours.toStringAsFixed(1)} hours',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold))),
+                      child: Text(
+                        '${_sleepHours.toStringAsFixed(1)} hours',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
                     const SizedBox(height: 20),
-                    const Text('Any cycle notes? (optional)',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Any cycle notes? (optional)',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     TextField(
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
@@ -180,14 +237,16 @@ class _TrackerScreenState extends State<TrackerScreen> {
                           backgroundColor: Colors.pinkAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
-                              vertical: 14, horizontal: 24),
+                            vertical: 14,
+                            horizontal: 24,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                         onPressed: _saveLog,
                       ),
-                    )
+                    ),
                   ],
                 ),
               ),

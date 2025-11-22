@@ -53,6 +53,60 @@ class _CommunityScreenState extends State<CommunityScreen> {
     setState(() {}); // refresh UI
   }
 
+  Future<void> _seedExampleCommunities() async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to create communities')),
+        );
+        return;
+      }
+
+      final examples = [
+        {
+          'name': 'Mindful Mornings',
+          'description':
+              'A space to share morning routines and mindfulness tips.',
+          'image_url': null,
+          'owner': user.id,
+        },
+        {
+          'name': 'Sleep Support',
+          'description': 'Discuss sleep hygiene, trackers, and restful habits.',
+          'image_url': null,
+          'owner': user.id,
+        },
+        {
+          'name': 'Women in Wellness',
+          'description': 'Community for peer support and resources.',
+          'image_url': null,
+          'owner': user.id,
+        },
+      ];
+
+      // Insert examples only if table is empty (defensive).
+      final current = await supabase.from('communities').select('id').limit(1);
+      if ((current as List).isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Communities already exist')),
+        );
+        return;
+      }
+
+      await supabase.from('communities').insert(examples);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Inserted sample communities')),
+      );
+      setState(() {});
+    } catch (e) {
+      debugPrint('Seeding communities failed: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create communities: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,7 +121,41 @@ class _CommunityScreenState extends State<CommunityScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final communities = snapshot.data!;
+          final communitiesRaw = snapshot.data!;
+          final communities =
+              List<Map<String, dynamic>>.from(communitiesRaw as List);
+
+          if (communities.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('No communities yet',
+                      style: TextStyle(fontSize: 18)),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {}); // re-run FutureBuilder
+                        },
+                        child: const Text('Refresh'),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        onPressed: _seedExampleCommunities,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pinkAccent,
+                        ),
+                        child: const Text('Create sample communities'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }
 
           return ListView.builder(
             padding: const EdgeInsets.all(12),
@@ -87,14 +175,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     child: ListTile(
                       leading: CircleAvatar(
                         radius: 28,
-                        backgroundImage:
-                            NetworkImage(community['image_url'] ?? ""),
+                        backgroundImage: (community['image_url'] is String &&
+                                (community['image_url'] as String)
+                                    .trim()
+                                    .isNotEmpty)
+                            ? NetworkImage(community['image_url'] as String)
+                            : null,
+                        child: (community['image_url'] == null ||
+                                (community['image_url'] is String &&
+                                    (community['image_url'] as String)
+                                        .trim()
+                                        .isEmpty))
+                            ? const Icon(Icons.group)
+                            : null,
                       ),
                       title: Text(
-                        community['name'],
+                        community['name'] ?? 'Community',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text(community['description']),
+                      subtitle: Text(community['description'] ?? ''),
                       trailing: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor:

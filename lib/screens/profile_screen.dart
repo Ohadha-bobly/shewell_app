@@ -36,9 +36,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .from('users')
           .select()
           .eq('id', widget.currentUserId)
-          .single();
+          .maybeSingle();
 
-      _userData = response;
+      if (response == null) {
+        // If no user row exists (possible for legacy accounts), create a minimal row.
+        try {
+          final authUser = supabase.auth.currentUser;
+          await supabase.from('users').insert({
+            'id': widget.currentUserId,
+            'email': authUser?.email ?? '',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (e) {
+          debugPrint('Failed to create minimal user row: $e');
+        }
+
+        // re-fetch after attempting to create
+        final retry = await supabase
+            .from('users')
+            .select()
+            .eq('id', widget.currentUserId)
+            .maybeSingle();
+        _userData = retry;
+      } else {
+        _userData = response;
+      }
+
       _nameController.text = _userData?['name'] ?? '';
       setState(() {});
     } catch (e) {
@@ -179,7 +202,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 16),
 
           Text(
-            _userData!['email'],
+            _userData!['email'] ?? '',
             style: const TextStyle(fontSize: 16),
           ),
 

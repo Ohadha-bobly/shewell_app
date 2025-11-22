@@ -16,19 +16,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> _resetPassword() async {
     setState(() => _loading = true);
     try {
-      await supabase.auth.resetPasswordForEmail(
-        _emailController.text.trim(),
-      );
+      final email = _emailController.text.trim();
+      if (email.isEmpty) throw Exception('Please enter your email');
+
+      await supabase.auth.resetPasswordForEmail(email);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reset email sent!')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Reset email sent!')));
       }
     } catch (e) {
+      String msg = e.toString();
+      try {
+        if (e is PostgrestException) msg = e.message;
+      } catch (_) {}
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $msg')));
       }
     } finally {
       setState(() => _loading = false);

@@ -84,10 +84,13 @@ class _UsersListScreenState extends State<UsersListScreen> {
               children: [
                 CircleAvatar(
                   radius: 26,
-                  backgroundImage: user['profile_url'] != null
-                      ? NetworkImage(user['profile_url'])
+                  backgroundImage: (user['profile_url'] is String &&
+                          (user['profile_url'] as String).trim().isNotEmpty)
+                      ? NetworkImage(user['profile_url'] as String)
                       : null,
-                  child: user['profile_url'] == null
+                  child: (user['profile_url'] == null ||
+                          (user['profile_url'] is String &&
+                              (user['profile_url'] as String).trim().isEmpty))
                       ? const Icon(Icons.person)
                       : null,
                 ),
