@@ -4,17 +4,6 @@ This document provides clear, well‑structured instructions for running, config
 
 ---
 
-# ⚠️ Flutter & Replit Compatibility
-
-Replit **does not fully support Flutter** in a web-based environment.
-
-According to Replit Agent documentation:
-
-> "Replit Agent does not support Flutter, but you can build mobile applications using Expo React Native."
-
-You can keep this Flutter structure on Replit for storage, but you **must run the app locally** or deploy through other platforms.
-
----
 
 # 📁 Project Structure
 
@@ -306,9 +295,6 @@ Enable replication for:
 
 ---
 
-# 🔄 Optional: Convert App to React Native
-
-Replit works better with **Expo React Native**, so you may convert the project if you want full Replit integration.
 
 ---
 

@@ -55,7 +55,7 @@ Below are sample screenshot placeholders. Replace them with your actual images.
 
 ### **Mood Tracker**
 
-![Mood Tracker](screenshots/mood_tracker.png)
+![Sign Up](screenshots/Signup.png)
 
 ### **Community Feed**
 
