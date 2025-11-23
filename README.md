@@ -53,7 +53,7 @@ Below are sample screenshot placeholders. Replace them with your actual images.
 
 ![Home Screen](screenshots/home.png)
 
-### **Mood Tracker**
+### **Sign Up**
 
 ![Sign Up](screenshots/Signup.png)
 
