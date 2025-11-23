@@ -47,7 +47,7 @@ Access the live deployed web app here:
 
 ## 📸 Screenshots
 
-Below are sample screenshot placeholders. Replace them with your actual images.
+Below are sample screenshots. Replace them with your actual images.
 
 ### **Home Screen**
 
