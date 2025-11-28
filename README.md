@@ -1,5 +1,7 @@
 # SheWell App
 
+📄 **Pitch Deck:** [View Here](https://gamma.app/docs/SheWell-dqvgtst3czrmzst)
+
 SheWell is a cross-platform wellness and community application built with **Flutter** and **Supabase**. It empowers users to track their wellness, connect with a supportive community, locate clinics, and chat with an AI‑powered assistant.
 
 ---
