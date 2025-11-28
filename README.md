@@ -35,16 +35,7 @@ SheWell is a cross-platform wellness and community application built with **Flut
 
 ---
 
-## 🌐 Live Demo (Web Version)
-
-Access the live deployed web app here:
-
-👉 **Live URL:** [https://your-web-app-url.com](https://shewell-web.vercel.app/)
-
-*(Replace with your actual deployment link)*
-
----
-
+## Demo screens (Web Version)
 ## 📸 Screenshots
 
 Below are sample screenshots. Replace them with your actual images.
