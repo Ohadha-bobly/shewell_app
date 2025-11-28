@@ -96,7 +96,7 @@ provider | State management
 fl_chart | Mood/sleep trends visualization
 
 ## 6️⃣ Supabase Setup
-
+See setup.MD file for detailed information
 
 ## 7️⃣ MVP Workflow
 
