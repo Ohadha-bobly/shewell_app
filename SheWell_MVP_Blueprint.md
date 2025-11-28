@@ -84,10 +84,10 @@ class Resource {
 
 Package | Purpose
 --------|----------
-firebase_core | Initialize Firebase
-firebase_auth | Authentication
-cloud_firestore | Store user data & logs
-firebase_messaging | Push notifications
+Supabase_core | Initialize Firebase
+Supabase_auth | Authentication
+cloud_supabase store | Store user data & logs
+supabase_messaging | Push notifications
 flutter_local_notifications | Local reminders
 http | API calls to OpenAI
 flutter_dotenv | Store API keys
@@ -95,25 +95,8 @@ Hive / SharedPreferences | Local offline storage
 provider | State management
 fl_chart | Mood/sleep trends visualization
 
-## 6️⃣ Firebase Setup
+## 6️⃣ Supabase Setup
 
-Firebase Project Setup Steps:
-1. Create a Firebase project: https://console.firebase.google.com
-2. Add Android app (package name: e.g. com.shewell.app)
-3. Download and add google-services.json → /android/app/
-4. Add iOS config (if applicable)
-5. Add Firebase dependencies:
-   - firebase_core
-   - firebase_auth
-   - cloud_firestore
-6. Initialize Firebase in main.dart:
-   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-7. Enable Email/Password Auth in Firebase Console
-8. Create Firestore collections:
-   - /users/{userId}
-   - /moodLogs/{userId}
-   - /chatMessages/{userId}
-   - /resources/
 
 ## 7️⃣ MVP Workflow
 
