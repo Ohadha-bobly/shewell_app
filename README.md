@@ -38,7 +38,7 @@ SheWell is a cross-platform wellness and community application built with **Flut
 ## Demo screens (Web Version)
 ## 📸 Screenshots
 
-Below are sample screenshots. Replace them with your actual images.
+Below are sample screenshots.
 
 ### **Home Screen**
 
